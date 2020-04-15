@@ -113,7 +113,7 @@ function bench(args::Args)
                     MPI.Barrier(comm)
 
                     times[i] = MPI.Wtime()
-                    MPI.Allreduce!(send, recv, root, args.operation, comm)
+                    MPI.Allreduce!(send, recv, msize, args.operation, comm)
                     times[i] = MPI.Wtime() - times[i]
                 end
             elseif call == MPI_Alltoall
@@ -124,7 +124,7 @@ function bench(args::Args)
                     MPI.Barrier(comm)
 
                     times[i] = MPI.Wtime()
-                    MPI.Alltoall!(send, recv, root, comm)
+                    MPI.Alltoall!(send, recv, msize, comm)
                     times[i] = MPI.Wtime() - times[i]
                 end
             elseif call == MPI_Bcast
