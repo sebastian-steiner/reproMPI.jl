@@ -86,6 +86,8 @@ function bench(args::Args)
     times = zeros(Float64, args.nrep)
     root = 0
 
+    Printf.@printf "%50s %10s %12s %14s\n" "test" "nrep" "count" "runtime_sec"
+
     for msize in args.sizes
         for call in args.calls
             #collective_call() = println("ERROR COLLECTIVE CALL NOT SET")
