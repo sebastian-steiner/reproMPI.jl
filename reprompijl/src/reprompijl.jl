@@ -88,7 +88,9 @@ function bench(args::Args)
     times = zeros(Float64, args.nrep)
     root = 0
 
-    Printf.@printf "%50s %10s %12s %14s\n" "test" "nrep" "count" "runtime_sec"
+    if rank == root
+        Printf.@printf "%50s %10s %12s %14s\n" "test" "nrep" "count" "runtime_sec"
+    end
 
     for msize in args.sizes
         for call in args.calls
