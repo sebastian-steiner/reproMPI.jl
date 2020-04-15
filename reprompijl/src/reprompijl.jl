@@ -61,6 +61,8 @@ function print_info(args::Args)
     println("#@operation=", args.operation)
     println("#@datatype=", "UInt8")
     println("#@nrep=", args.nrep)
+    println("#@root_proc=", 0)
+    println("#@root_proc=", MPI.Comm_rank(MPI.COMM_WORLD))
 end
 
 function print_results(times::Array{Float64,1}, args::Args, call::Collective, size::Int64)
