@@ -15,6 +15,8 @@ struct Args
     sizes::Array{Int64,1}
     operation::MPI.Op
     verbose::Bool
+    random::Bool
+    check::Bool
 end
 
 const root = 0
@@ -47,13 +49,21 @@ function parse_parameters()::Args
         "--verbose", "-v"
             help = "increase verbosity level (print times measured for each process)"
             action = :store_true
+        "--random", "-r"
+            help = "use random data in collective calls (default is all zeros)"
+            action = :store_true
+        "--check", "-k"
+            help = "check the correctness of the calculated result by recalculating on one core"
+            action = :store_true
     end
     args = parse_args(ARGS, s)
     nrep = args["nrep"]
     calls = [str_to_collective(ss) for ss in  split(args["calls-list"], ",")]
     message_sizes = [parse(Int, ss) for ss in split(args["msizes-list"], ",")]
     verbose = args["verbose"]
-    Args(nrep, calls, message_sizes, MPI.BOR, verbose)
+    random = args["random"]
+    check = args["check"]
+    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check)
 end
 
 function print_info(args::Args)
@@ -71,6 +81,8 @@ function print_info(args::Args)
     println("#@root_proc=", 0)
     println("#@nprocs=", MPI.Comm_size(MPI.COMM_WORLD))
     println("#@verbose=", args.verbose)
+    println("#@random=", args.random)
+    println("#@check=", args.check)
 end
 
 function print_verbose(times::Array{Float64,1}, args::Args, call::Collective, msize::Int64)
@@ -122,6 +134,36 @@ function print_results(times::Array{Float64,1}, args::Args, call::Collective, si
     end
 end
 
+function check_allreduce(msize::Int64, send, recv)
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    size = MPI.Comm_size(comm)
+
+    MPI.Barrier(comm)
+    
+    # alloc space for send buffers
+    if rank == root
+        all_send = zeros(UInt8, msize, size)
+    else
+        all_send = nothing
+    end
+
+    # get times from other processes
+    MPI.Gather!(send, all_send, msize, root, comm)
+
+    result = zeros(UInt8, msize)
+    # the only supported operation is MPI.BOR
+    if rank == root
+        for proc_id in 1:size
+            for i in 1:msize
+                result[i] = result[i] | all_send[i, proc_id]
+            end
+        end
+    end
+
+    return result
+end
+
 function bench(args::Args)
     comm = MPI.COMM_WORLD
     rank = MPI.Comm_rank(comm)
@@ -143,8 +185,18 @@ function bench(args::Args)
             MPI.Barrier(comm)
 
             if call == MPI_Allreduce
-                send = zeros(UInt8, msize)
-                recv = zeros(UInt8, msize)
+                if args.random
+                    send = rand(UInt8, msize)
+                    recv = rand(UInt8, msize)
+                else
+                    send = zeros(UInt8, msize)
+                    recv = zeros(UInt8, msize)
+                end
+
+                if args.check
+                    result = check_allreduce(msize, send, recv)
+                end
+
                 for i in 1:args.nrep
                     # start sync
                     MPI.Barrier(comm)
@@ -154,8 +206,13 @@ function bench(args::Args)
                     times[i] = MPI.Wtime() - times[i]
                 end
             elseif call == MPI_Alltoall
-                send = zeros(UInt8, msize * size)
-                recv = zeros(UInt8, msize * size)
+                if args.random
+                    send = rand(UInt8, msize * size)
+                    recv = rand(UInt8, msize * size)
+                else
+                    send = zeros(UInt8, msize * size)
+                    recv = zeros(UInt8, msize * size)
+                end
                 for i in 1:args.nrep
                     # start sync
                     MPI.Barrier(comm)
@@ -165,7 +222,11 @@ function bench(args::Args)
                     times[i] = MPI.Wtime() - times[i]
                 end
             elseif call == MPI_Bcast
-                buf = zeros(UInt8, msize)
+                if args.random
+                    buf = zeros(UInt8, msize)
+                else
+                    buf = zeros(UInt8, msize)
+                end
                 for i in 1:args.nrep
                     # start sync
                     MPI.Barrier(comm)
@@ -178,6 +239,20 @@ function bench(args::Args)
 
             # print timing output
             print_results(times, args, call, msize)
+
+            all_correct = true
+            if rank == root && args.check
+                for i in 1:msize
+                    if result[i] != recv[i]
+                        println("Got an incorrect result for element ", i)
+                        all_correct = false
+                    end
+                end
+            end
+
+            if all_correct
+                println("Verified every element successfully")
+            end
         end
     end
 end
