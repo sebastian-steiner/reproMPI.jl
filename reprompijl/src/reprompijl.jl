@@ -250,7 +250,7 @@ function bench(args::Args)
                 end
             end
 
-            if all_correct
+            if rank == root && all_correct
                 println("Verified every element successfully")
             end
         end
