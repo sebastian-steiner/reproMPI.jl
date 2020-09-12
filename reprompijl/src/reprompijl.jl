@@ -310,11 +310,13 @@ function bench(args::Args)
                             all_correct = false
                         end
                     end
-                elseif call == MPI_Scan
-                    if !check_scan(msize, send, recv)
-                        println("Got an incorrect result")
-                        all_correct = false
-                    end
+                end
+            end
+
+            if args.check && call == MPI_Scan
+                if !check_scan(msize, send, recv) && rank == root
+                    println("Got an incorrect result")
+                    all_correct = false
                 end
             end
 
