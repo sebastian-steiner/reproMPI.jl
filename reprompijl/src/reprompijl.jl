@@ -7,6 +7,7 @@ using Printf
     MPI_Allreduce
     MPI_Alltoall
     MPI_Bcast
+    MPI_Scan
 end
 
 struct Args
@@ -26,8 +27,10 @@ function str_to_collective(str::SubString{String})::Collective
         return MPI_Allreduce
     elseif str == "MPI_Alltoall"
         return MPI_Alltoall
-    else
+    elseif str == "MPI_Bcast"
         return MPI_Bcast
+    else
+        return MPI_Scan
     end
 end
 
@@ -134,7 +137,7 @@ function print_results(times::Array{Float64,1}, args::Args, call::Collective, si
     end
 end
 
-function check_allreduce(msize::Int64, send, recv)
+function check_allreduce(msize::Int64, send)
     comm = MPI.COMM_WORLD
     rank = MPI.Comm_rank(comm)
     size = MPI.Comm_size(comm)
@@ -148,7 +151,6 @@ function check_allreduce(msize::Int64, send, recv)
         all_send = nothing
     end
 
-    # get times from other processes
     MPI.Gather!(send, all_send, msize, root, comm)
 
     result = zeros(UInt8, msize)
@@ -162,6 +164,48 @@ function check_allreduce(msize::Int64, send, recv)
     end
 
     return result
+end
+
+function check_scan(msize::Int64, send, recv)
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    size = MPI.Comm_size(comm)
+
+    MPI.Barrier(comm)
+    
+    # alloc space for send buffers
+    if rank == root
+        all_send = zeros(UInt8, msize, size)
+        all_recv = zeros(UInt8, msize, size)
+    else
+        all_send = nothing
+        all_recv = nothing
+    end
+
+    MPI.Gather!(send, all_send, msize, root, comm)
+    MPI.Gather!(recv, all_recv, msize, root, comm)
+
+    result = zeros(UInt8, msize, size)
+    # the only supported operation is MPI.BOR
+    all_correct = true
+    if rank == root
+        for i in 1:msize
+            for proc_id in 1:size
+                if proc_id == 1
+                    left = all_send[i, 1]
+                else
+                    left = result[i, proc_id - 1]
+                end
+                result[i, proc_id] = left | all_send[i, proc_id]
+                if result[i, proc_id] != all_recv[i, proc_id]
+                    println("Got incorrect result at: [", i, ", ", proc_id, "]")
+                    all_correct = false
+                end
+            end
+        end
+    end
+
+    return all_correct
 end
 
 function bench(args::Args)
@@ -194,7 +238,7 @@ function bench(args::Args)
                 end
 
                 if args.check
-                    result = check_allreduce(msize, send, recv)
+                    result = check_allreduce(msize, send)
                 end
 
                 for i in 1:args.nrep
@@ -203,6 +247,23 @@ function bench(args::Args)
 
                     times[i] = MPI.Wtime()
                     MPI.Allreduce!(send, recv, msize, args.operation, comm)
+                    times[i] = MPI.Wtime() - times[i]
+                end
+            elseif call == MPI_Scan
+                if args.random
+                    send = rand(UInt8, msize)
+                    recv = rand(UInt8, msize)
+                else
+                    send = zeros(UInt8, msize)
+                    recv = zeros(UInt8, msize)
+                end
+
+                for i in 1:args.nrep
+                    # start sync
+                    MPI.Barrier(comm)
+
+                    times[i] = MPI.Wtime()
+                    MPI.Scan!(send, recv, msize, args.operation, comm)
                     times[i] = MPI.Wtime() - times[i]
                 end
             elseif call == MPI_Alltoall
@@ -242,9 +303,16 @@ function bench(args::Args)
 
             all_correct = true
             if rank == root && args.check
-                for i in 1:msize
-                    if result[i] != recv[i]
-                        println("Got an incorrect result for element ", i)
+                if call == MPI_Allreduce
+                    for i in 1:msize
+                        if result[i] != recv[i]
+                            println("Got an incorrect result for element ", i)
+                            all_correct = false
+                        end
+                    end
+                elseif call == MPI_Scan
+                    if !check_scan(msize, send, recv)
+                        println("Got an incorrect result")
                         all_correct = false
                     end
                 end
