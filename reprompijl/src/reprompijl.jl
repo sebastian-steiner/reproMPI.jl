@@ -2,12 +2,14 @@ module reprompijl
 using MPI
 using ArgParse
 using Printf
+using Pkg
 
 @enum Collective begin
     MPI_Allreduce
     MPI_Alltoall
     MPI_Bcast
     MPI_Scan
+    Nanosleep
 end
 
 struct Args
@@ -29,8 +31,10 @@ function str_to_collective(str::SubString{String})::Collective
         return MPI_Alltoall
     elseif str == "MPI_Bcast"
         return MPI_Bcast
-    else
+    elseif str == "MPI_Scan"
         return MPI_Scan
+    else
+        return Nanosleep
     end
 end
 
@@ -86,6 +90,13 @@ function print_info(args::Args)
     println("#@verbose=", args.verbose)
     println("#@random=", args.random)
     println("#@check=", args.check)
+    println("####")
+    println("#@Julia Version=", VERSION)
+    println("#@MPI.jl Version=", Pkg.installed()["MPI"])
+    if VERSION > v"0.7.0"
+        println("#@MPI version=", MPI.MPI_VERSION)
+        println("#@MPI library version=", MPI.MPI_LIBRARY_VERSION)
+    end
 end
 
 function print_verbose(times::Array{Float64,1}, args::Args, call::Collective, msize::Int64)
