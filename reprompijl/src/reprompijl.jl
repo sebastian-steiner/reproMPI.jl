@@ -40,7 +40,7 @@ end
 
 function parse_parameters()::Args
     s = ArgParseSettings()
-    @add_arg_table! s begin
+    @add_arg_table s begin
         "--calls-list", "-c"
             help = "list of comma-separated MPI calls to be benchmarked, e.g., --calls-list=MPI_Bcast,MPI_Allgather"
             required = true
@@ -93,10 +93,7 @@ function print_info(args::Args)
     println("####")
     println("#@Julia Version=", VERSION)
     println("#@MPI.jl Version=", Pkg.installed()["MPI"])
-    if VERSION > v"0.7.0"
-        println("#@MPI version=", MPI.MPI_VERSION)
-        println("#@MPI library version=", MPI.MPI_LIBRARY_VERSION)
-    end
+    println("#@MPI Version=", strip(split(read(`ompi_info`, String), "\n")[2]))
 end
 
 function print_verbose(times::Array{Float64,1}, args::Args, call::Collective, msize::Int64)
