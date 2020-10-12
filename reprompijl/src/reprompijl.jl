@@ -3,6 +3,7 @@ using MPI
 using ArgParse
 using Printf
 using Pkg
+using Statistics
 
 @enum Collective begin
     MPI_Allreduce
@@ -20,6 +21,7 @@ struct Args
     verbose::Bool
     random::Bool
     check::Bool
+    summary::Bool
 end
 
 const root = 0
@@ -62,6 +64,9 @@ function parse_parameters()::Args
         "--check", "-k"
             help = "check the correctness of the calculated result by recalculating on one core"
             action = :store_true
+        "--summary"
+            help = "only prints statistical data about results"
+            action = :store_true
     end
     args = parse_args(ARGS, s)
     nrep = args["nrep"]
@@ -70,7 +75,8 @@ function parse_parameters()::Args
     verbose = args["verbose"]
     random = args["random"]
     check = args["check"]
-    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check)
+    summary = args["summary"]
+    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check, summary)
 end
 
 function print_info(args::Args)
@@ -140,9 +146,51 @@ function print_simple(times::Array{Float64,1}, args::Args, call::Collective, siz
     end
 end
 
+function print_summary(times::Array{Float64,1}, args::Args, call::Collective, size::Int64)
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    size = MPI.Comm_size(comm)
+
+    # alloc space for times
+    if rank == root
+        all_times = Array{Float64,2}(undef, args.nrep, size)
+    else
+        all_times = nothing
+    end
+
+    # get times from other processes
+    MPI.Gather!(times, all_times, args.nrep, root, comm)
+
+    # print times
+    if rank == root
+        # calculate max runtime
+        maxRuntime = maximum(MPI.Reduce(times, max, root, comm))
+
+        # calculate min runtime
+        minRuntime = minimum(MPI.Reduce(times, min, root, comm))
+
+        # calculate median runtime
+        medianRuntime = median(all_times)
+
+        # calculate q1, q3
+        q1 = quantile(reshape(all_times, length(all_times)), 0.25)
+        q3 = quantile(reshape(all_times, length(all_times)), 0.75)
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+
+        meanRuntime = mean(filter(x -> x >= lower && x <= upper, all_times))
+
+        Printf.@printf("%50s %10d %14.10f %14.10f %14.10f %14.10f\n",
+                    call, args.nrep, meanRuntime, medianRuntime, minRuntime, maxRuntime)
+    end
+end
+
 function print_results(times::Array{Float64,1}, args::Args, call::Collective, size::Int64)
     if args.verbose
         print_verbose(times, args, call, size)
+    elseif args.summary
+        print_summary(times, args, call, size)
     else
         print_simple(times, args, call, size)
     end
@@ -229,6 +277,9 @@ function bench(args::Args)
     if rank == root
         if args.verbose
             Printf.@printf("%7s %50s %10s %12s %14s\n",  "process", "test", "nrep", "count", "time")
+        elseif args.summary
+            Printf.@printf("%50s %10s %14s %14s %14s %14s\n",
+                    "test", "nrep", "mean_sec", "median_sec", "min_sec", "max_sec")
         else
             Printf.@printf("%50s %10s %12s %14s\n", "test", "nrep", "count", "runtime_sec")
         end
