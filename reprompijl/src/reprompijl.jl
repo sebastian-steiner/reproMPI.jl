@@ -22,7 +22,6 @@ struct Args
     random::Bool
     check::Bool
     summary::Bool
-    withOutliers::Bool
 end
 
 const root = 0
@@ -68,9 +67,6 @@ function parse_parameters()::Args
         "--summary"
             help = "only prints statistical data about results"
             action = :store_true
-        "--no-remove-outliers"
-            help = "don't remove outliers when calculating the mean in --summary mode"
-            action = :store_true
     end
     args = parse_args(ARGS, s)
     nrep = args["nrep"]
@@ -80,8 +76,7 @@ function parse_parameters()::Args
     random = args["random"]
     check = args["check"]
     summary = args["summary"]
-    withOutliers = args["no-remove-outliers"]
-    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check, summary, withOutliers)
+    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check, summary)
 end
 
 function print_info(args::Args)
@@ -178,18 +173,7 @@ function print_summary(times::Array{Float64,1}, args::Args, call::Collective, si
         # calculate median runtime
         medianRuntime = median(all_times)
 
-        # calculate q1, q3
-        q1 = quantile(reshape(all_times, length(all_times)), 0.25)
-        q3 = quantile(reshape(all_times, length(all_times)), 0.75)
-        iqr = q3 - q1
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-
-        if (args.withOutliers)
-            meanRuntime = mean(all_times)
-        else
-            meanRuntime = mean(filter(x -> x >= lower && x <= upper, all_times))
-        end
+        meanRuntime = mean(all_times)
 
         Printf.@printf("%50s %10d %14.10f %14.10f %14.10f %14.10f\n",
                     call, args.nrep, meanRuntime, medianRuntime, minRuntime, maxRuntime)
