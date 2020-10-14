@@ -159,13 +159,17 @@ function print_summary(times::Array{Float64,1}, args::Args, call::Collective, si
     MPI.Gather!(times, all_times, args.nrep, root, comm)
 
     # calculate max runtime
-    maxRuntime = maximum(MPI.Reduce(times, max, root, comm))
+    maxRuntimes = MPI.Reduce(times, max, root, comm)
 
     # calculate min runtime
-    minRuntime = minimum(MPI.Reduce(times, min, root, comm))
+    minRuntimes = MPI.Reduce(times, min, root, comm)
 
     # print times
     if rank == root
+        maxRuntime = maximum(maxRuntimes)
+
+        minRuntime = minimum(minRuntimes)
+
         # calculate median runtime
         medianRuntime = median(all_times)
 
