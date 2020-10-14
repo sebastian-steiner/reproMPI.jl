@@ -22,6 +22,7 @@ struct Args
     random::Bool
     check::Bool
     summary::Bool
+    withOutliers::Bool
 end
 
 const root = 0
@@ -67,6 +68,9 @@ function parse_parameters()::Args
         "--summary"
             help = "only prints statistical data about results"
             action = :store_true
+        "--no-remove-outliers"
+            help = "don't remove outliers when calculating the mean in --summary mode"
+            action = :store_true
     end
     args = parse_args(ARGS, s)
     nrep = args["nrep"]
@@ -76,7 +80,8 @@ function parse_parameters()::Args
     random = args["random"]
     check = args["check"]
     summary = args["summary"]
-    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check, summary)
+    withOutliers = args["no-remove-outliers"]
+    Args(nrep, calls, message_sizes, MPI.BOR, verbose, random, check, summary, withOutliers)
 end
 
 function print_info(args::Args)
@@ -180,7 +185,11 @@ function print_summary(times::Array{Float64,1}, args::Args, call::Collective, si
         lower = q1 - 1.5 * iqr
         upper = q3 + 1.5 * iqr
 
-        meanRuntime = mean(filter(x -> x >= lower && x <= upper, all_times))
+        if (args.withOutliers)
+            meanRuntime = mean(all_times)
+        else
+            meanRuntime = mean(filter(x -> x >= lower && x <= upper, all_times))
+        end
 
         Printf.@printf("%50s %10d %14.10f %14.10f %14.10f %14.10f\n",
                     call, args.nrep, meanRuntime, medianRuntime, minRuntime, maxRuntime)
